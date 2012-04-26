@@ -154,6 +154,9 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     return NET_CONN;
   }
 
+  size_t recvContentLength = 0;
+  bool recvChunked = false;
+
   //Send all headers
 
   //Send default headers
@@ -271,8 +274,6 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2));
   trfLen -= (crlfPos + 2);
 
-  size_t recvContentLength = 0;
-  bool recvChunked = false;
   //Now get headers
   while( true )
   {
@@ -625,4 +626,3 @@ int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, cha
 
   return OK;
 }
-
