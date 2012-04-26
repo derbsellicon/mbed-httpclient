@@ -156,6 +156,9 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   size_t recvContentLength = 0;
   bool recvChunked = false;
+  char buf[CHUNK_SIZE];
+  size_t trfLen;
+  int crlfPos;
 
   //Send all headers
 
@@ -187,9 +190,6 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   DBG("Headers sent");
   ret = send("\r\n");
   if(ret != OK) goto connerr;
-
-  char buf[CHUNK_SIZE];
-  size_t trfLen;
 
   //Send data (if POST)
   if( (method == HTTP_POST) && (pDataOut != NULL) )
@@ -251,7 +251,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     goto prtclerr;
   }
 
-  int crlfPos = crlfPtr - buf;
+  crlfPos = crlfPtr - buf;
   buf[crlfPos] = '\0';
 
   //Parse HTTP response
