@@ -454,15 +454,18 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   return OK;
 
   connerr:
+  {
     socket::close(m_sock);
     ERR("Connection error (%d)", ret);
-  return NET_CONN;
-
+    return NET_CONN;
+  }
+  
   prtclerr:
+  {
     socket::close(m_sock);
     ERR("Protocol error");
-  return NET_PROTOCOL;
-
+    return NET_PROTOCOL;
+  }
 }
 
 int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) //0 on success, err code on failure
