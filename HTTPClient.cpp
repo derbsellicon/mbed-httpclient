@@ -154,12 +154,6 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     return NET_CONN;
   }
 
-  size_t recvContentLength = 0;
-  bool recvChunked = false;
-  char buf[CHUNK_SIZE];
-  size_t trfLen;
-  int crlfPos;
-
   //Send all headers
 
   //Send default headers
@@ -190,6 +184,9 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   DBG("Headers sent");
   ret = send("\r\n");
   if(ret != OK) goto connerr;
+
+  char buf[CHUNK_SIZE];
+  size_t trfLen;
 
   //Send data (if POST)
   if( (method == HTTP_POST) && (pDataOut != NULL) )
@@ -240,7 +237,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Receive response
   DBG("Receiving response");
-  ret = recv(buf, CHUNK_SIZE, CHUNK_SIZE, &trfLen); //Read n bytes
+  ret = recv(buf, CHUNK_SIZE - 1, CHUNK_SIZE - 1, &trfLen); //Read n bytes
   if(ret != OK) goto connerr;
 
   buf[trfLen] = '\0';
@@ -251,7 +248,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     goto prtclerr;
   }
 
-  crlfPos = crlfPtr - buf;
+  int crlfPos = crlfPtr - buf;
   buf[crlfPos] = '\0';
 
   //Parse HTTP response
@@ -271,22 +268,24 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   DBG("Reading headers");
 
-  memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2));
+  memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2) + 1); //Be sure to move NULL-terminating char as well
   trfLen -= (crlfPos + 2);
 
+  size_t recvContentLength = 0;
+  bool recvChunked = false;
   //Now get headers
   while( true )
   {
     crlfPtr = strstr(buf, "\r\n");
     if(crlfPtr == NULL)
     {
-      if( trfLen < CHUNK_SIZE )
+      if( trfLen < CHUNK_SIZE - 1 )
       {
         size_t newTrfLen;
         ret = recv(buf + trfLen, 1, CHUNK_SIZE - trfLen - 1, &newTrfLen);
         trfLen += newTrfLen;
         buf[trfLen] = '\0';
-        DBG("In buf: [%s]", buf);
+        DBG("Read %d chars; In buf: [%s]", newTrfLen, buf);
         if(ret != OK) goto connerr;
         continue;
       }
@@ -301,17 +300,20 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     if(crlfPos == 0) //End of headers
     {
       DBG("Headers read");
-      memmove(buf, &buf[2], trfLen - 2);
+      memmove(buf, &buf[2], trfLen - 2 + 1); //Be sure to move NULL-terminating char as well
       trfLen -= 2;
       break;
     }
 
     buf[crlfPos] = '\0';
 
-    char key[16];
-    char value[16];
+    char key[32];
+    char value[32];
 
-    int n = sscanf(buf, "%16[^:]: %16[^\r\n]", key, value);
+    key[31] = '\0';
+    value[31] = '\0';
+
+    int n = sscanf(buf, "%31[^:]: %31[^\r\n]", key, value);
     if ( n == 2 )
     {
       DBG("Read header : %s: %s\n", key, value);
@@ -333,7 +335,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
         pDataIn->setDataType(value);
       }
 
-      memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2));
+      memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2) + 1); //Be sure to move NULL-terminating char as well
       trfLen -= (crlfPos + 2);
 
     }
@@ -385,7 +387,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
         goto prtclerr;
       }
 
-      memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2));
+      memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2)); //Not need to move NULL-terminating char any more
       trfLen -= (crlfPos + 2);
 
       if( readLen == 0 )
@@ -419,7 +421,6 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       {
         ret = recv(buf, 1, CHUNK_SIZE - trfLen - 1, &trfLen);
         if(ret != OK) goto connerr;
-
       }
     } while(readLen);
 
@@ -454,18 +455,15 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   return OK;
 
   connerr:
-  {
     socket::close(m_sock);
     ERR("Connection error (%d)", ret);
-    return NET_CONN;
-  }
-  
+  return NET_CONN;
+
   prtclerr:
-  {
     socket::close(m_sock);
     ERR("Protocol error");
-    return NET_PROTOCOL;
-  }
+  return NET_PROTOCOL;
+
 }
 
 int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) //0 on success, err code on failure
