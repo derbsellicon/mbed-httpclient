@@ -77,6 +77,21 @@ int HTTPClient::getHTTPResponseCode()
   return m_httpResponseCode;
 }
 
+#define CHECK_CONN_ERR(ret) \
+  do{ \
+    if(ret != OK) { \
+      ::close(m_sock); \
+      ERR("Connection error (%d)", ret); \
+      return NET_CONN; \
+    } \
+  } while(0)
+
+#define PRTCL_ERR() \
+  do{ \
+    ::close(m_sock); \
+    ERR("Protocol error"); \
+    return NET_PROTOCOL; \
+  } while(0)
 
 int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, uint32_t timeout) //Execute request
 {
@@ -111,7 +126,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   //Resolve DNS if needed
 
   DBG("Resolving DNS address or populate hard-coded IP address");
-  struct hostent *server = socket::gethostbyname(host);
+  struct hostent *server = ::gethostbyname(host);
   if(server == NULL)
   {
     return NET_NOTFOUND; //Fail
@@ -123,7 +138,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Create socket
   DBG("Creating socket");
-  m_sock = socket::socket(AF_INET, SOCK_STREAM, 0); //UDP socket
+  m_sock = ::socket(AF_INET, SOCK_STREAM, 0); //UDP socket
   if (m_sock < 0)
   {
     ERR("Could not create socket");
@@ -133,10 +148,10 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Connect it
   DBG("Connecting socket to %s:%d", inet_ntoa(m_serverAddr.sin_addr), ntohs(m_serverAddr.sin_port));
-  ret = socket::connect(m_sock, (const struct sockaddr *)&m_serverAddr, sizeof(m_serverAddr));
+  ret = ::connect(m_sock, (const struct sockaddr *)&m_serverAddr, sizeof(m_serverAddr));
   if (ret < 0)
   {
-    socket::close(m_sock);
+    ::close(m_sock);
     ERR("Could not connect");
     return NET_CONN;
   }
@@ -149,7 +164,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   ret = send(line);
   if(ret)
   {
-    socket::close(m_sock);
+    ::close(m_sock);
     ERR("Could not write request");
     return NET_CONN;
   }
@@ -163,27 +178,27 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     if( pDataOut->getIsChunked() )
     {
       ret = send("Transfer-Encoding: chunked\r\n");
-      if(ret != OK) goto connerr;
+      CHECK_CONN_ERR(ret);
     }
     else
     {
       snprintf(line, sizeof(line), "Content-Length: %d\r\n", pDataOut->getDataLen());
       ret = send(line);
-      if(ret != OK) goto connerr;
+      CHECK_CONN_ERR(ret);
     }
     char type[48];
     if( pDataOut->getDataType(type, 48) == OK )
     {
       snprintf(line, sizeof(line), "Content-Type: %s\r\n", type);
       ret = send(line);
-      if(ret != OK) goto connerr;
+      CHECK_CONN_ERR(ret);
     }
   }
 
   //Close headers
   DBG("Headers sent");
   ret = send("\r\n");
-  if(ret != OK) goto connerr;
+  CHECK_CONN_ERR(ret);
 
   char buf[CHUNK_SIZE];
   size_t trfLen;
@@ -201,7 +216,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
         //Write chunk header
         snprintf(line, sizeof(line), "%X\r\n", trfLen); //In hex encoding
         ret = send(line);
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
       }
       else if( trfLen == 0 )
       {
@@ -210,13 +225,13 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       if( trfLen != 0 )
       {
         ret = send(buf, trfLen);
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
       }
 
       if( pDataOut->getIsChunked()  )
       {
         ret = send("\r\n"); //Chunk-terminating CRLF
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
       }
       else
       {
@@ -238,14 +253,14 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   //Receive response
   DBG("Receiving response");
   ret = recv(buf, CHUNK_SIZE - 1, CHUNK_SIZE - 1, &trfLen); //Read n bytes
-  if(ret != OK) goto connerr;
+  CHECK_CONN_ERR(ret);
 
   buf[trfLen] = '\0';
 
   char* crlfPtr = strstr(buf, "\r\n");
   if(crlfPtr == NULL)
   {
-    goto prtclerr;
+    PRTCL_ERR();
   }
 
   int crlfPos = crlfPtr - buf;
@@ -256,14 +271,14 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   {
     //Cannot match string, error
     ERR("Not a correct HTTP answer : %s\n", buf);
-    goto prtclerr;
+    PRTCL_ERR();
   }
 
   if(m_httpResponseCode != 200)
   {
     //Cannot match string, error
     WARN("Response code %d", m_httpResponseCode);
-    goto prtclerr;
+    PRTCL_ERR();
   }
 
   DBG("Reading headers");
@@ -286,12 +301,12 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
         trfLen += newTrfLen;
         buf[trfLen] = '\0';
         DBG("Read %d chars; In buf: [%s]", newTrfLen, buf);
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
         continue;
       }
       else
       {
-        goto prtclerr;
+        PRTCL_ERR();
       }
     }
 
@@ -342,7 +357,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     else
     {
       ERR("Could not parse header");
-      goto prtclerr;
+      PRTCL_ERR();
     }
 
   }
@@ -371,12 +386,12 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
           size_t newTrfLen;
           ret = recv(buf + trfLen, 0, CHUNK_SIZE - trfLen - 1, &newTrfLen);
           trfLen += newTrfLen;
-          if(ret != OK) goto connerr;
+          CHECK_CONN_ERR(ret);
           continue;
         }
         else
         {
-          goto prtclerr;
+          PRTCL_ERR();
         }
       }
       buf[crlfPos] = '\0';
@@ -384,7 +399,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       if(n!=1)
       {
         ERR("Could not read chunk length");
-        goto prtclerr;
+        PRTCL_ERR();
       }
 
       memmove(buf, &buf[crlfPos+2], trfLen - (crlfPos + 2)); //Not need to move NULL-terminating char any more
@@ -420,7 +435,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       if(readLen)
       {
         ret = recv(buf, 1, CHUNK_SIZE - trfLen - 1, &trfLen);
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
       }
     } while(readLen);
 
@@ -431,13 +446,13 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
         size_t newTrfLen;
         //Read missing chars to find end of chunk
         ret = recv(buf, 2 - trfLen, CHUNK_SIZE, &newTrfLen);
-        if(ret != OK) goto connerr;
+        CHECK_CONN_ERR(ret);
         trfLen += newTrfLen;
       }
       if( (buf[0] != '\r') || (buf[1] != '\n') )
       {
         ERR("Format error");
-        goto prtclerr;
+        PRTCL_ERR();
       }
       memmove(buf, &buf[2], trfLen - 2);
       trfLen -= 2;
@@ -449,21 +464,10 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   }
 
-  socket::close(m_sock);
+  ::close(m_sock);
   DBG("Completed HTTP transaction");
 
   return OK;
-
-  connerr:
-    socket::close(m_sock);
-    ERR("Connection error (%d)", ret);
-  return NET_CONN;
-
-  prtclerr:
-    socket::close(m_sock);
-    ERR("Protocol error");
-  return NET_PROTOCOL;
-
 }
 
 int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) //0 on success, err code on failure
@@ -480,14 +484,14 @@ int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) 
     struct timeval t_val;
     t_val.tv_sec = m_timeout / 1000;
     t_val.tv_usec = (m_timeout - (t_val.tv_sec * 1000)) * 1000;
-    int ret = socket::select(FD_SETSIZE, &socksSet, NULL, NULL, &t_val);
+    int ret = ::select(FD_SETSIZE, &socksSet, NULL, NULL, &t_val);
     if(ret <= 0 || !FD_ISSET(m_sock, &socksSet))
     {
       WARN("Timeout");
       return NET_TIMEOUT; //Timeout
     }
 
-    ret = socket::recv(m_sock, buf + readLen, maxLen - readLen, 0);
+    ret = ::recv(m_sock, buf + readLen, maxLen - readLen, 0);
     if( ret > 0)
     {
       readLen += ret;
@@ -527,14 +531,14 @@ int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
     struct timeval t_val;
     t_val.tv_sec = m_timeout / 1000;
     t_val.tv_usec = (m_timeout - (t_val.tv_sec * 1000)) * 1000;
-    int ret = socket::select(FD_SETSIZE, NULL, &socksSet, NULL, &t_val);
+    int ret = ::select(FD_SETSIZE, NULL, &socksSet, NULL, &t_val);
     if(ret <= 0 || !FD_ISSET(m_sock, &socksSet))
     {
       WARN("Timeout");
       return NET_TIMEOUT; //Timeout
     }
 
-    ret = socket::send(m_sock, buf + writtenLen, len - writtenLen, 0);
+    ret = ::send(m_sock, buf + writtenLen, len - writtenLen, 0);
     if( ret > 0)
     {
       writtenLen += ret;

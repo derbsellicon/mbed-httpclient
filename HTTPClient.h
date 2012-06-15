@@ -28,7 +28,7 @@ HTTP Client header file
 #ifndef HTTP_CLIENT_H
 #define HTTP_CLIENT_H
 
-#include "api/socket.h"
+#include "bsd_socket.h"
 
 #define HTTP_CLIENT_DEFAULT_TIMEOUT 4000
 
