@@ -138,7 +138,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Create socket
   DBG("Creating socket");
-  m_sock = ::socket(AF_INET, SOCK_STREAM, 0); //UDP socket
+  m_sock = ::socket(AF_INET, SOCK_STREAM, 0); //TCP socket
   if (m_sock < 0)
   {
     ERR("Could not create socket");
