@@ -28,7 +28,7 @@ HTTP Client header file
 #ifndef HTTP_CLIENT_H
 #define HTTP_CLIENT_H
 
-#include "bsd_socket.h"
+#include "TCPSocket.h"
 
 #define HTTP_CLIENT_DEFAULT_TIMEOUT 4000
 
@@ -124,14 +124,13 @@ private:
   int parseURL(const char* url, char* scheme, size_t maxSchemeLen, char* host, size_t maxHostLen, uint16_t* port, char* path, size_t maxPathLen); //Parse URL
 
   //Parameters
-  int m_sock;
+  TCPSocket m_sock;
+  
   uint32_t m_timeout;
 
   const char* m_basicAuthUser;
   const char* m_basicAuthPassword;
   int m_httpResponseCode;
-
-  struct sockaddr_in m_serverAddr;
 
 };
 

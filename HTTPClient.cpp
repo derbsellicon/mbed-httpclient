@@ -21,9 +21,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+//Debug is disabled by default
+#if 0
 #define __DEBUG__ 4 //Maximum verbosity
 #ifndef __MODULE__
 #define __MODULE__ "HTTPClient.cpp"
+#endif
+#else
+#define __DEBUG__ 0 //Disabled
 #endif
 
 #include "core/fwk.h"
@@ -38,7 +43,7 @@ SOFTWARE.
 #include <cstring>
 
 HTTPClient::HTTPClient() :
-m_basicAuthUser(NULL), m_basicAuthPassword(NULL), m_httpResponseCode(0)
+m_sock(), m_basicAuthUser(NULL), m_basicAuthPassword(NULL), m_httpResponseCode(0)
 {
 
 }
@@ -79,8 +84,8 @@ int HTTPClient::getHTTPResponseCode()
 
 #define CHECK_CONN_ERR(ret) \
   do{ \
-    if(ret != OK) { \
-      ::close(m_sock); \
+    if(ret) { \
+      m_sock.close(); \
       ERR("Connection error (%d)", ret); \
       return NET_CONN; \
     } \
@@ -88,7 +93,7 @@ int HTTPClient::getHTTPResponseCode()
 
 #define PRTCL_ERR() \
   do{ \
-    ::close(m_sock); \
+    m_sock.close(); \
     ERR("Protocol error"); \
     return NET_PROTOCOL; \
   } while(0)
@@ -104,7 +109,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   char path[64];
   //First we need to parse the url (http[s]://host[:port][/[path]]) -- HTTPS not supported (yet?)
   int ret = parseURL(url, scheme, sizeof(scheme), host, sizeof(host), &port, path, sizeof(path));
-  if(ret != OK)
+  if(ret)
   {
     ERR("parseURL returned %d", ret);
     return ret;
@@ -120,38 +125,12 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   DBG("Port: %d", port);
   DBG("Path: %s", path);
 
-  //Now populate structure
-  std::memset(&m_serverAddr, 0, sizeof(struct sockaddr_in));
-
-  //Resolve DNS if needed
-
-  DBG("Resolving DNS address or populate hard-coded IP address");
-  struct hostent *server = ::gethostbyname(host);
-  if(server == NULL)
-  {
-    return NET_NOTFOUND; //Fail
-  }
-  memcpy((char*)&m_serverAddr.sin_addr.s_addr, (char*)server->h_addr_list[0], server->h_length);
-
-  m_serverAddr.sin_family = AF_INET;
-  m_serverAddr.sin_port = htons(port);
-
-  //Create socket
-  DBG("Creating socket");
-  m_sock = ::socket(AF_INET, SOCK_STREAM, 0); //TCP socket
-  if (m_sock < 0)
-  {
-    ERR("Could not create socket");
-    return NET_OOM;
-  }
-  DBG("Handle is %d", m_sock);
-
-  //Connect it
-  DBG("Connecting socket to %s:%d", inet_ntoa(m_serverAddr.sin_addr), ntohs(m_serverAddr.sin_port));
-  ret = ::connect(m_sock, (const struct sockaddr *)&m_serverAddr, sizeof(m_serverAddr));
+  //Connect
+  DBG("Connecting socket to server");
+  ret = m_sock.connect(host, port);
   if (ret < 0)
   {
-    ::close(m_sock);
+    m_sock.close();
     ERR("Could not connect");
     return NET_CONN;
   }
@@ -164,7 +143,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   ret = send(line);
   if(ret)
   {
-    ::close(m_sock);
+    m_sock.close();
     ERR("Could not write request");
     return NET_CONN;
   }
@@ -464,7 +443,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   }
 
-  ::close(m_sock);
+  m_sock.close();
   DBG("Completed HTTP transaction");
 
   return OK;
@@ -474,24 +453,19 @@ int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) 
 {
   DBG("Trying to read between %d and %d bytes", minLen, maxLen);
   size_t readLen = 0;
-  while(readLen < minLen)
+  
+  int ret;
+  while(readLen < maxLen)
   {
-    //Wait for socket to be readable
-    //Creating FS set
-    fd_set socksSet;
-    FD_ZERO(&socksSet);
-    FD_SET(m_sock, &socksSet);
-    struct timeval t_val;
-    t_val.tv_sec = m_timeout / 1000;
-    t_val.tv_usec = (m_timeout - (t_val.tv_sec * 1000)) * 1000;
-    int ret = ::select(FD_SETSIZE, &socksSet, NULL, NULL, &t_val);
-    if(ret <= 0 || !FD_ISSET(m_sock, &socksSet))
+    if(readLen < minLen)
     {
-      WARN("Timeout");
-      return NET_TIMEOUT; //Timeout
+      ret = m_sock.receive(buf + readLen, minLen - readLen, m_timeout);
     }
-
-    ret = ::recv(m_sock, buf + readLen, maxLen - readLen, 0);
+    else
+    {
+      ret = m_sock.receive(buf + readLen, maxLen - readLen, 0);
+    }
+    
     if( ret > 0)
     {
       readLen += ret;
@@ -499,17 +473,17 @@ int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) 
     }
     else if( ret == 0 )
     {
-      WARN("Connection was closed by server");
-      return NET_CLOSED; //Connection was closed by server
+      break;
     }
     else
     {
       ERR("Connection error (recv returned %d)", ret);
+      *pReadLen = readLen;
       return NET_CONN;
     }
   }
-  *pReadLen = readLen;
   DBG("Read %d bytes", readLen);
+  *pReadLen = readLen;
   return OK;
 }
 
@@ -521,28 +495,14 @@ int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
   }
   DBG("Trying to write %d bytes", len);
   size_t writtenLen = 0;
-  while(writtenLen < len)
+  
+  int ret;
+  do
   {
-    //Wait for socket to be writeable
-    //Creating FS set
-    fd_set socksSet;
-    FD_ZERO(&socksSet);
-    FD_SET(m_sock, &socksSet);
-    struct timeval t_val;
-    t_val.tv_sec = m_timeout / 1000;
-    t_val.tv_usec = (m_timeout - (t_val.tv_sec * 1000)) * 1000;
-    int ret = ::select(FD_SETSIZE, NULL, &socksSet, NULL, &t_val);
-    if(ret <= 0 || !FD_ISSET(m_sock, &socksSet))
-    {
-      WARN("Timeout");
-      return NET_TIMEOUT; //Timeout
-    }
-
-    ret = ::send(m_sock, buf + writtenLen, len - writtenLen, 0);
-    if( ret > 0)
+    ret = m_sock.send(buf + writtenLen, len - writtenLen, m_timeout);
+    if(ret > 0)
     {
       writtenLen += ret;
-      continue;
     }
     else if( ret == 0 )
     {
@@ -554,7 +514,8 @@ int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
       ERR("Connection error (recv returned %d)", ret);
       return NET_CONN;
     }
-  }
+  } while(writtenLen < len);
+  
   DBG("Written %d bytes", writtenLen);
   return OK;
 }
