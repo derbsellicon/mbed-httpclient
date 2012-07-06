@@ -547,7 +547,7 @@ int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, cha
   {
     hostLen = portPtr - hostPtr;
     portPtr++;
-    if( sscanf(portPtr, "%d", &port) != 1)
+    if( sscanf(portPtr, "%hu", port) != 1)
     {
       WARN("Could not find port");
       return NET_INVALID;
