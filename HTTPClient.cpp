@@ -137,10 +137,10 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Send request
   DBG("Sending request");
-  char line[128];
+  char buf[CHUNK_SIZE];
   const char* meth = (method==HTTP_GET)?"GET":(method==HTTP_POST)?"POST":"";
-  snprintf(line, sizeof(line), "%s %s HTTP/1.1\r\nHost: %s\r\n", meth, path, host); //Write request
-  ret = send(line);
+  snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nHost: %s\r\n", meth, path, host); //Write request
+  ret = send(buf);
   if(ret)
   {
     m_sock.close();
@@ -161,27 +161,26 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     }
     else
     {
-      snprintf(line, sizeof(line), "Content-Length: %d\r\n", pDataOut->getDataLen());
-      ret = send(line);
+      snprintf(buf, sizeof(buf), "Content-Length: %d\r\n", pDataOut->getDataLen());
+      ret = send(buf);
       CHECK_CONN_ERR(ret);
     }
     char type[48];
     if( pDataOut->getDataType(type, 48) == OK )
     {
-      snprintf(line, sizeof(line), "Content-Type: %s\r\n", type);
-      ret = send(line);
+      snprintf(buf, sizeof(buf), "Content-Type: %s\r\n", type);
+      ret = send(buf);
       CHECK_CONN_ERR(ret);
     }
   }
-
+  
   //Close headers
   DBG("Headers sent");
   ret = send("\r\n");
   CHECK_CONN_ERR(ret);
 
-  char buf[CHUNK_SIZE];
   size_t trfLen;
-
+  
   //Send data (if POST)
   if( (method == HTTP_POST) && (pDataOut != NULL) )
   {
@@ -193,8 +192,9 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       if( pDataOut->getIsChunked() )
       {
         //Write chunk header
-        snprintf(line, sizeof(line), "%X\r\n", trfLen); //In hex encoding
-        ret = send(line);
+        char chunkHeader[16];
+        snprintf(chunkHeader, sizeof(chunkHeader), "%X\r\n", trfLen); //In hex encoding
+        ret = send(chunkHeader);
         CHECK_CONN_ERR(ret);
       }
       else if( trfLen == 0 )
@@ -228,7 +228,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
     }
 
   }
-
+  
   //Receive response
   DBG("Receiving response");
   ret = recv(buf, CHUNK_SIZE - 1, CHUNK_SIZE - 1, &trfLen); //Read n bytes
