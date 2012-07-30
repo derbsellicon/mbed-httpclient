@@ -19,24 +19,29 @@
 
 //Debug is disabled by default
 #if 0
-#define __DEBUG__ 4 //Maximum verbosity
-#ifndef __MODULE__
-#define __MODULE__ "HTTPClient.cpp"
-#endif
+#define DBG(x, ...) 
+#define WARN(x, ...)
+#define ERR(x, ...) 
 #else
-#define __DEBUG__ 0 //Disabled
+#include <cstdio>
+#define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
+#define WARN(x, ...) std::printf("[HTTPClient : WARN]"x"\r\n", ##__VA_ARGS__); 
+#define ERR(x, ...) std::printf("[HTTPClient : ERR]"x"\r\n", ##__VA_ARGS__); 
 #endif
-
-#include "core/fwk.h"
-
-#include "HTTPClient.h"
 
 #define HTTP_REQUEST_TIMEOUT 30000
 #define HTTP_PORT 80
 
+#define OK 0
+
+#define MIN(x,y) (((x)<(y))?(x):(y))
+#define MAX(x,y) (((x)>(y))?(x):(y))
+
 #define CHUNK_SIZE 256
 
 #include <cstring>
+
+#include "HTTPClient.h"
 
 HTTPClient::HTTPClient() :
 m_sock(), m_basicAuthUser(NULL), m_basicAuthPassword(NULL), m_httpResponseCode(0)
@@ -57,18 +62,18 @@ void HTTPClient::basicAuth(const char* user, const char* password) //Basic Authe
 }
 #endif
 
-int HTTPClient::get(const char* url, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::get(const char* url, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   return connect(url, HTTP_GET, NULL, pDataIn, timeout);
 }
 
-int HTTPClient::get(const char* url, char* result, size_t maxResultLen, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::get(const char* url, char* result, size_t maxResultLen, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   HTTPText str(result, maxResultLen);
   return get(url, &str, timeout);
 }
 
-int HTTPClient::post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   return connect(url, HTTP_POST, (IHTTPDataOut*)&dataOut, pDataIn, timeout);
 }
@@ -83,7 +88,7 @@ int HTTPClient::getHTTPResponseCode()
     if(ret) { \
       m_sock.close(); \
       ERR("Connection error (%d)", ret); \
-      return NET_CONN; \
+      return HTTP_CONN; \
     } \
   } while(0)
 
@@ -91,10 +96,10 @@ int HTTPClient::getHTTPResponseCode()
   do{ \
     m_sock.close(); \
     ERR("Protocol error"); \
-    return NET_PROTOCOL; \
+    return HTTP_PRTCL; \
   } while(0)
 
-int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, uint32_t timeout) //Execute request
+HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, uint32_t timeout) //Execute request
 {
   m_httpResponseCode = 0; //Invalidate code
   m_timeout = timeout;
@@ -104,11 +109,11 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   char host[32];
   char path[64];
   //First we need to parse the url (http[s]://host[:port][/[path]]) -- HTTPS not supported (yet?)
-  int ret = parseURL(url, scheme, sizeof(scheme), host, sizeof(host), &port, path, sizeof(path));
-  if(ret)
+  HTTPResult res = parseURL(url, scheme, sizeof(scheme), host, sizeof(host), &port, path, sizeof(path));
+  if(res != HTTP_OK)
   {
-    ERR("parseURL returned %d", ret);
-    return ret;
+    ERR("parseURL returned %d", res);
+    return res;
   }
 
   if(port == 0) //TODO do handle HTTPS->443
@@ -123,12 +128,12 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
 
   //Connect
   DBG("Connecting socket to server");
-  ret = m_sock.connect(host, port);
+  int ret = m_sock.connect(host, port);
   if (ret < 0)
   {
     m_sock.close();
     ERR("Could not connect");
-    return NET_CONN;
+    return HTTP_CONN;
   }
 
   //Send request
@@ -141,7 +146,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   {
     m_sock.close();
     ERR("Could not write request");
-    return NET_CONN;
+    return HTTP_CONN;
   }
 
   //Send all headers
@@ -162,7 +167,7 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
       CHECK_CONN_ERR(ret);
     }
     char type[48];
-    if( pDataOut->getDataType(type, 48) == OK )
+    if( pDataOut->getDataType(type, 48) == HTTP_OK )
     {
       snprintf(buf, sizeof(buf), "Content-Type: %s\r\n", type);
       ret = send(buf);
@@ -442,10 +447,10 @@ int HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOu
   m_sock.close();
   DBG("Completed HTTP transaction");
 
-  return OK;
+  return HTTP_OK;
 }
 
-int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) //0 on success, err code on failure
+HTTPResult HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) //0 on success, err code on failure
 {
   DBG("Trying to read between %d and %d bytes", minLen, maxLen);
   size_t readLen = 0;
@@ -455,7 +460,7 @@ int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) 
   {
     if(readLen < minLen)
     {
-      ret = m_sock.receive(buf + readLen, minLen - readLen, m_timeout);
+      ret = m_sock.receive_all(buf + readLen, minLen - readLen, m_timeout);
     }
     else
     {
@@ -475,15 +480,15 @@ int HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen) 
     {
       ERR("Connection error (recv returned %d)", ret);
       *pReadLen = readLen;
-      return NET_CONN;
+      return HTTP_CONN;
     }
   }
   DBG("Read %d bytes", readLen);
   *pReadLen = readLen;
-  return OK;
+  return HTTP_OK;
 }
 
-int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
+HTTPResult HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
 {
   if(len == 0)
   {
@@ -495,7 +500,7 @@ int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
   int ret;
   do
   {
-    ret = m_sock.send(buf + writtenLen, len - writtenLen, m_timeout);
+    ret = m_sock.send_all(buf + writtenLen, len - writtenLen, m_timeout);
     if(ret > 0)
     {
       writtenLen += ret;
@@ -503,33 +508,33 @@ int HTTPClient::send(char* buf, size_t len) //0 on success, err code on failure
     else if( ret == 0 )
     {
       WARN("Connection was closed by server");
-      return NET_CLOSED; //Connection was closed by server
+      return HTTP_CLOSED; //Connection was closed by server
     }
     else
     {
       ERR("Connection error (recv returned %d)", ret);
-      return NET_CONN;
+      return HTTP_CONN;
     }
   } while(writtenLen < len);
   
   DBG("Written %d bytes", writtenLen);
-  return OK;
+  return HTTP_OK;
 }
 
-int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, char* host, size_t maxHostLen, uint16_t* port, char* path, size_t maxPathLen) //Parse URL
+HTTPResult HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, char* host, size_t maxHostLen, uint16_t* port, char* path, size_t maxPathLen) //Parse URL
 {
   char* schemePtr = (char*) url;
   char* hostPtr = (char*) strstr(url, "://");
   if(hostPtr == NULL)
   {
     WARN("Could not find host");
-    return NET_INVALID; //URL is invalid
+    return HTTP_PARSE; //URL is invalid
   }
 
   if( maxSchemeLen < hostPtr - schemePtr + 1 ) //including NULL-terminating char
   {
     WARN("Scheme str is too small (%d >= %d)", maxSchemeLen, hostPtr - schemePtr + 1);
-    return NET_TOOSMALL;
+    return HTTP_PARSE;
   }
   memcpy(scheme, schemePtr, hostPtr - schemePtr);
   scheme[hostPtr - schemePtr] = '\0';
@@ -546,7 +551,7 @@ int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, cha
     if( sscanf(portPtr, "%hu", port) != 1)
     {
       WARN("Could not find port");
-      return NET_INVALID;
+      return HTTP_PARSE;
     }
   }
   else
@@ -562,7 +567,7 @@ int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, cha
   if( maxHostLen < hostLen + 1 ) //including NULL-terminating char
   {
     WARN("Host str is too small (%d >= %d)", maxHostLen, hostLen + 1);
-    return NET_TOOSMALL;
+    return HTTP_PARSE;
   }
   memcpy(host, hostPtr, hostLen);
   host[hostLen] = '\0';
@@ -581,10 +586,10 @@ int HTTPClient::parseURL(const char* url, char* scheme, size_t maxSchemeLen, cha
   if( maxPathLen < pathLen + 1 ) //including NULL-terminating char
   {
     WARN("Path str is too small (%d >= %d)", maxPathLen, pathLen + 1);
-    return NET_TOOSMALL;
+    return HTTP_PARSE;
   }
   memcpy(path, pathPtr, pathLen);
   path[pathLen] = '\0';
 
-  return OK;
+  return HTTP_OK;
 }
