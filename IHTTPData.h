@@ -20,6 +20,10 @@
 #ifndef IHTTPDATA_H
 #define IHTTPDATA_H
 
+#include <cstring>
+
+using std::size_t;
+
 ///This is a simple interface for HTTP data storage (impl examples are Key/Value Pairs, File, etc...)
 class IHTTPDataOut
 {

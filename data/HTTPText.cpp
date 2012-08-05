@@ -17,11 +17,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "core/fwk.h"
-
 #include "HTTPText.h"
 
 #include <cstring>
+
+#define OK 0
+
+using std::memcpy;
+using std::strncpy;
+using std::strlen;
+
+#define MIN(x,y) (((x)<(y))?(x):(y))
 
 HTTPText::HTTPText(char* str) : m_str(str), m_pos(0)
 {

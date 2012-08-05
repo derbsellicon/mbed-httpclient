@@ -17,13 +17,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "core/fwk.h"
-
 #include "HTTPMap.h"
 
 #include <cstring>
 
 #include <cctype>
+
+#define OK 0
+
+using std::strncpy;
 
 HTTPMap::HTTPMap() : m_pos(0), m_count(0)
 {

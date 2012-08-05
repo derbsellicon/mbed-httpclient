@@ -18,10 +18,11 @@
  */
 
 //Debug is disabled by default
-#if 0
+#if 1
 //Enable debug
 #include <cstdio>
-#define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
+//#define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
+#define DBG(x, ...) 
 #define WARN(x, ...) std::printf("[HTTPClient : WARN]"x"\r\n", ##__VA_ARGS__); 
 #define ERR(x, ...) std::printf("[HTTPClient : ERR]"x"\r\n", ##__VA_ARGS__); 
 
@@ -470,13 +471,13 @@ HTTPResult HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pRe
     if(readLen < minLen)
     {
       DBG("Trying to read at most %d bytes [Blocking]", minLen - readLen);
-      m_sock.set_blocking(true, m_timeout);
+      m_sock.set_blocking(false, m_timeout);
       ret = m_sock.receive_all(buf + readLen, minLen - readLen);
     }
     else
     {
       DBG("Trying to read at most %d bytes [Not blocking]", maxLen - readLen);
-      m_sock.set_blocking(false);
+      m_sock.set_blocking(false, 0);
       ret = m_sock.receive(buf + readLen, maxLen - readLen);
     }
     
@@ -527,7 +528,7 @@ HTTPResult HTTPClient::send(char* buf, size_t len) //0 on success, err code on f
     return HTTP_CLOSED; //Connection was closed by server 
   }
   
-  m_sock.set_blocking(true, m_timeout);
+  m_sock.set_blocking(false, m_timeout);
   int ret = m_sock.send_all(buf, len);
   if(ret > 0)
   {
