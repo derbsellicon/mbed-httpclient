@@ -26,7 +26,7 @@ HTTP Client header file
 
 #include "TCPSocketConnection.h"
 
-#define HTTP_CLIENT_DEFAULT_TIMEOUT 4000
+#define HTTP_CLIENT_DEFAULT_TIMEOUT 15000
 
 class HTTPData;
 
@@ -77,9 +77,9 @@ public:
   @param url : url on which to execute the request
   @param pDataIn : pointer to an IHTTPDataIn instance that will collect the data returned by the request, can be NULL
   @param timeout waiting timeout in ms (osWaitForever for blocking function, not recommended)
-  @return 0 on success, NET error (<0) on failure
+  @return 0 on success, HTTP error (<0) on failure
   */
-  HTTPResult get(const char* url, IHTTPDataIn* pDataIn, uint32_t timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
+  HTTPResult get(const char* url, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
   
   /** Execute a GET request on the url
   Blocks until completion
@@ -88,9 +88,9 @@ public:
   @param result : pointer to a char array in which the result will be stored
   @param maxResultLen : length of the char array (including space for the NULL-terminating char)
   @param timeout waiting timeout in ms (osWaitForever for blocking function, not recommended)
-  @return 0 on success, NET error on failure
+  @return 0 on success, HTTP error (<0) on failure
   */
-  HTTPResult get(const char* url, char* result, size_t maxResultLen, uint32_t timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
+  HTTPResult get(const char* url, char* result, size_t maxResultLen, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
 
   /** Execute a POST request on the url
   Blocks until completion
@@ -98,9 +98,9 @@ public:
   @param dataOut : a IHTTPDataOut instance that contains the data that will be posted
   @param pDataIn : pointer to an IHTTPDataIn instance that will collect the data returned by the request, can be NULL
   @param timeout waiting timeout in ms (osWaitForever for blocking function, not recommended)
-  @return 0 on success, NET error on failure
+  @return 0 on success, HTTP error (<0) on failure
   */
-  HTTPResult post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, uint32_t timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
+  HTTPResult post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
   
   /** Get last request's HTTP response code
   @return The HTTP response code of the last request
@@ -115,7 +115,7 @@ private:
     HTTP_HEAD
   };
 
-  HTTPResult connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, uint32_t timeout); //Execute request
+  HTTPResult connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, int timeout); //Execute request
   HTTPResult recv(char* buf, size_t minLen, size_t maxLen, size_t* pReadLen); //0 on success, err code on failure
   HTTPResult send(char* buf, size_t len = 0); //0 on success, err code on failure
   HTTPResult parseURL(const char* url, char* scheme, size_t maxSchemeLen, char* host, size_t maxHostLen, uint16_t* port, char* path, size_t maxPathLen); //Parse URL
@@ -123,7 +123,7 @@ private:
   //Parameters
   TCPSocketConnection m_sock;
   
-  uint32_t m_timeout;
+  int m_timeout;
 
   const char* m_basicAuthUser;
   const char* m_basicAuthPassword;

@@ -19,17 +19,20 @@
 
 //Debug is disabled by default
 #if 0
-#define DBG(x, ...) 
-#define WARN(x, ...)
-#define ERR(x, ...) 
-#else
+//Enable debug
 #include <cstdio>
 #define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
 #define WARN(x, ...) std::printf("[HTTPClient : WARN]"x"\r\n", ##__VA_ARGS__); 
 #define ERR(x, ...) std::printf("[HTTPClient : ERR]"x"\r\n", ##__VA_ARGS__); 
+
+#else
+//Disable debug
+#define DBG(x, ...) 
+#define WARN(x, ...)
+#define ERR(x, ...) 
+
 #endif
 
-#define HTTP_REQUEST_TIMEOUT 30000
 #define HTTP_PORT 80
 
 #define OK 0
@@ -62,18 +65,18 @@ void HTTPClient::basicAuth(const char* user, const char* password) //Basic Authe
 }
 #endif
 
-HTTPResult HTTPClient::get(const char* url, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::get(const char* url, IHTTPDataIn* pDataIn, int timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   return connect(url, HTTP_GET, NULL, pDataIn, timeout);
 }
 
-HTTPResult HTTPClient::get(const char* url, char* result, size_t maxResultLen, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::get(const char* url, char* result, size_t maxResultLen, int timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   HTTPText str(result, maxResultLen);
   return get(url, &str, timeout);
 }
 
-HTTPResult HTTPClient::post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, uint32_t timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+HTTPResult HTTPClient::post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, int timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
 {
   return connect(url, HTTP_POST, (IHTTPDataOut*)&dataOut, pDataIn, timeout);
 }
@@ -99,8 +102,8 @@ int HTTPClient::getHTTPResponseCode()
     return HTTP_PRTCL; \
   } while(0)
 
-HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, uint32_t timeout) //Execute request
-{
+HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* pDataOut, IHTTPDataIn* pDataIn, int timeout) //Execute request
+{ 
   m_httpResponseCode = 0; //Invalidate code
   m_timeout = timeout;
 
@@ -454,23 +457,32 @@ HTTPResult HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pRe
 {
   DBG("Trying to read between %d and %d bytes", minLen, maxLen);
   size_t readLen = 0;
-  
+      
+  if(!m_sock.is_connected())
+  {
+    WARN("Connection was closed by server");
+    return HTTP_CLOSED; //Connection was closed by server 
+  }
+    
   int ret;
   while(readLen < maxLen)
   {
     if(readLen < minLen)
     {
-      ret = m_sock.receive_all(buf + readLen, minLen - readLen, m_timeout);
+      DBG("Trying to read at most %d bytes [Blocking]", minLen - readLen);
+      m_sock.set_blocking(true, m_timeout);
+      ret = m_sock.receive_all(buf + readLen, minLen - readLen);
     }
     else
     {
-      ret = m_sock.receive(buf + readLen, maxLen - readLen, 0);
+      DBG("Trying to read at most %d bytes [Not blocking]", maxLen - readLen);
+      m_sock.set_blocking(false);
+      ret = m_sock.receive(buf + readLen, maxLen - readLen);
     }
     
     if( ret > 0)
     {
       readLen += ret;
-      continue;
     }
     else if( ret == 0 )
     {
@@ -478,9 +490,21 @@ HTTPResult HTTPClient::recv(char* buf, size_t minLen, size_t maxLen, size_t* pRe
     }
     else
     {
-      ERR("Connection error (recv returned %d)", ret);
-      *pReadLen = readLen;
-      return HTTP_CONN;
+      if(!m_sock.is_connected())
+      {
+        ERR("Connection error (recv returned %d)", ret);
+        *pReadLen = readLen;
+        return HTTP_CONN;
+      }
+      else
+      {
+        break;      
+      }
+    }
+    
+    if(!m_sock.is_connected())
+    {
+      break;
     }
   }
   DBG("Read %d bytes", readLen);
@@ -496,26 +520,29 @@ HTTPResult HTTPClient::send(char* buf, size_t len) //0 on success, err code on f
   }
   DBG("Trying to write %d bytes", len);
   size_t writtenLen = 0;
-  
-  int ret;
-  do
+    
+  if(!m_sock.is_connected())
   {
-    ret = m_sock.send_all(buf + writtenLen, len - writtenLen, m_timeout);
-    if(ret > 0)
-    {
-      writtenLen += ret;
-    }
-    else if( ret == 0 )
-    {
-      WARN("Connection was closed by server");
-      return HTTP_CLOSED; //Connection was closed by server
-    }
-    else
-    {
-      ERR("Connection error (recv returned %d)", ret);
-      return HTTP_CONN;
-    }
-  } while(writtenLen < len);
+    WARN("Connection was closed by server");
+    return HTTP_CLOSED; //Connection was closed by server 
+  }
+  
+  m_sock.set_blocking(true, m_timeout);
+  int ret = m_sock.send_all(buf, len);
+  if(ret > 0)
+  {
+    writtenLen += ret;
+  }
+  else if( ret == 0 )
+  {
+    WARN("Connection was closed by server");
+    return HTTP_CLOSED; //Connection was closed by server
+  }
+  else
+  {
+    ERR("Connection error (send returned %d)", ret);
+    return HTTP_CONN;
+  }
   
   DBG("Written %d bytes", writtenLen);
   return HTTP_OK;
