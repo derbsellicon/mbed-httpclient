@@ -355,34 +355,44 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
     if( recvChunked )
     {
       //Read chunk header
-      crlfPos=0;
-      for(crlfPos++; crlfPos < trfLen - 2; crlfPos++)
+      bool foundCrlf;
+      do
       {
-        if( buf[crlfPos] == '\r' && buf[crlfPos + 1] == '\n' )
+        foundCrlf = false;
+        crlfPos=0;
+        buf[trfLen]=0;
+        if(trfLen >= 2)
         {
-          break;
+          for(; crlfPos < trfLen - 2; crlfPos++)
+          {
+            if( buf[crlfPos] == '\r' && buf[crlfPos + 1] == '\n' )
+            {
+              foundCrlf = true;
+              break;
+            }
+          }
         }
-      }
-      if(crlfPos >= trfLen - 2) //Try to read more
-      {
-        if( trfLen < CHUNK_SIZE )
+        if(!foundCrlf) //Try to read more
         {
-          size_t newTrfLen;
-          ret = recv(buf + trfLen, 0, CHUNK_SIZE - trfLen - 1, &newTrfLen);
-          trfLen += newTrfLen;
-          CHECK_CONN_ERR(ret);
-          continue;
+          if( trfLen < CHUNK_SIZE )
+          {
+            size_t newTrfLen;
+            ret = recv(buf + trfLen, 0, CHUNK_SIZE - trfLen - 1, &newTrfLen);
+            trfLen += newTrfLen;
+            CHECK_CONN_ERR(ret);
+            continue;
+          }
+          else
+          {
+            PRTCL_ERR();
+          }
         }
-        else
-        {
-          PRTCL_ERR();
-        }
-      }
+      } while(!foundCrlf);
       buf[crlfPos] = '\0';
       int n = sscanf(buf, "%x", &readLen);
       if(n!=1)
       {
-        ERR("Could not read chunk length");
+        ERR("Could not read chunk length -- crlfpos == %d & got %s", crlfPos, buf);
         PRTCL_ERR();
       }
 
@@ -429,7 +439,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
       {
         size_t newTrfLen;
         //Read missing chars to find end of chunk
-        ret = recv(buf, 2 - trfLen, CHUNK_SIZE, &newTrfLen);
+        ret = recv(buf + trfLen, 2 - trfLen, CHUNK_SIZE - trfLen - 1, &newTrfLen);
         CHECK_CONN_ERR(ret);
         trfLen += newTrfLen;
       }
