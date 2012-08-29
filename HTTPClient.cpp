@@ -392,7 +392,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
       int n = sscanf(buf, "%x", &readLen);
       if(n!=1)
       {
-        ERR("Could not read chunk length -- crlfpos == %d & got %s", crlfPos, buf);
+        ERR("Could not read chunk length");
         PRTCL_ERR();
       }
 
