@@ -49,6 +49,10 @@ void HTTPMap::clear()
   m_pos = 0;
 }
 
+/*virtual*/ void HTTPMap::readReset()
+{
+  m_pos = 0;
+}
 
 /*virtual*/ int HTTPMap::read(char* buf, size_t len, size_t* pReadLen)
 {

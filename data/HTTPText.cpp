@@ -40,6 +40,11 @@ HTTPText::HTTPText(char* str, size_t size) : m_str(str), m_size(size), m_pos(0)
 }
 
 //IHTTPDataIn
+/*virtual*/ void HTTPText::readReset()
+{
+  m_pos = 0;
+}
+
 /*virtual*/ int HTTPText::read(char* buf, size_t len, size_t* pReadLen)
 {
   *pReadLen = MIN(len, m_size - 1 - m_pos);
@@ -66,6 +71,11 @@ HTTPText::HTTPText(char* str, size_t size) : m_str(str), m_size(size), m_pos(0)
 }
 
 //IHTTPDataOut
+/*virtual*/ void HTTPText::writeReset()
+{
+  m_pos = 0;
+}
+
 /*virtual*/ int HTTPText::write(const char* buf, size_t len)
 {
   size_t writeLen = MIN(len, m_size - 1 - m_pos);

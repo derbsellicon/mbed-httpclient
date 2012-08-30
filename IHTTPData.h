@@ -29,6 +29,11 @@ class IHTTPDataOut
 {
 protected:
   friend class HTTPClient;
+  
+  /** Reset stream to its beginning 
+   * Called by the HTTPClient on each new request
+   */
+  virtual void readReset() = 0;
 
   /** Read a piece of data to be transmitted
    * @param buf Pointer to the buffer on which to copy the data
@@ -59,6 +64,11 @@ class IHTTPDataIn
 {
 protected:
   friend class HTTPClient;
+
+  /** Reset stream to its beginning 
+   * Called by the HTTPClient on each new request
+   */
+  virtual void writeReset() = 0;
 
   /** Write a piece of data transmitted by the server
    * @param buf Pointer to the buffer from which to copy the data

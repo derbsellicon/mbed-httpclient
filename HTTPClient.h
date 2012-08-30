@@ -72,7 +72,7 @@ public:
 #endif
   
   //High Level setup functions
-  /** Execute a GET request on the url
+  /** Execute a GET request on the URL
   Blocks until completion
   @param url : url on which to execute the request
   @param pDataIn : pointer to an IHTTPDataIn instance that will collect the data returned by the request, can be NULL
@@ -81,7 +81,7 @@ public:
   */
   HTTPResult get(const char* url, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
   
-  /** Execute a GET request on the url
+  /** Execute a GET request on the URL
   Blocks until completion
   This is a helper to directly get a piece of text from a HTTP result
   @param url : url on which to execute the request
@@ -92,7 +92,7 @@ public:
   */
   HTTPResult get(const char* url, char* result, size_t maxResultLen, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
 
-  /** Execute a POST request on the url
+  /** Execute a POST request on the URL
   Blocks until completion
   @param url : url on which to execute the request
   @param dataOut : a IHTTPDataOut instance that contains the data that will be posted
@@ -101,6 +101,25 @@ public:
   @return 0 on success, HTTP error (<0) on failure
   */
   HTTPResult post(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
+  
+  /** Execute a PUT request on the URL
+  Blocks until completion
+  @param url : url on which to execute the request
+  @param dataOut : a IHTTPDataOut instance that contains the data that will be put
+  @param pDataIn : pointer to an IHTTPDataIn instance that will collect the data returned by the request, can be NULL
+  @param timeout waiting timeout in ms (osWaitForever for blocking function, not recommended)
+  @return 0 on success, HTTP error (<0) on failure
+  */
+  HTTPResult put(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
+  
+  /** Execute a DELETE request on the URL
+  Blocks until completion
+  @param url : url on which to execute the request
+  @param pDataIn : pointer to an IHTTPDataIn instance that will collect the data returned by the request, can be NULL
+  @param timeout waiting timeout in ms (osWaitForever for blocking function, not recommended)
+  @return 0 on success, HTTP error (<0) on failure
+  */
+  HTTPResult del(const char* url, IHTTPDataIn* pDataIn, int timeout = HTTP_CLIENT_DEFAULT_TIMEOUT); //Blocking
   
   /** Get last request's HTTP response code
   @return The HTTP response code of the last request
@@ -112,6 +131,8 @@ private:
   {
     HTTP_GET,
     HTTP_POST,
+    HTTP_PUT,
+    HTTP_DELETE,
     HTTP_HEAD
   };
 

@@ -18,11 +18,10 @@
  */
 
 //Debug is disabled by default
-#if 1
+#if 0
 //Enable debug
 #include <cstdio>
-//#define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
-#define DBG(x, ...) 
+#define DBG(x, ...) std::printf("[HTTPClient : DBG]"x"\r\n", ##__VA_ARGS__); 
 #define WARN(x, ...) std::printf("[HTTPClient : WARN]"x"\r\n", ##__VA_ARGS__); 
 #define ERR(x, ...) std::printf("[HTTPClient : ERR]"x"\r\n", ##__VA_ARGS__); 
 
@@ -82,6 +81,17 @@ HTTPResult HTTPClient::post(const char* url, const IHTTPDataOut& dataOut, IHTTPD
   return connect(url, HTTP_POST, (IHTTPDataOut*)&dataOut, pDataIn, timeout);
 }
 
+HTTPResult HTTPClient::put(const char* url, const IHTTPDataOut& dataOut, IHTTPDataIn* pDataIn, int timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+{
+  return connect(url, HTTP_PUT, (IHTTPDataOut*)&dataOut, pDataIn, timeout);
+}
+
+HTTPResult HTTPClient::del(const char* url, IHTTPDataIn* pDataIn, int timeout /*= HTTP_CLIENT_DEFAULT_TIMEOUT*/) //Blocking
+{
+  return connect(url, HTTP_DELETE, NULL, pDataIn, timeout);
+}
+
+
 int HTTPClient::getHTTPResponseCode()
 {
   return m_httpResponseCode;
@@ -107,6 +117,12 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
 { 
   m_httpResponseCode = 0; //Invalidate code
   m_timeout = timeout;
+  
+  pDataIn->writeReset();
+  if( pDataOut )
+  {
+    pDataOut->readReset();
+  }
 
   char scheme[8];
   uint16_t port;
@@ -143,7 +159,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
   //Send request
   DBG("Sending request");
   char buf[CHUNK_SIZE];
-  const char* meth = (method==HTTP_GET)?"GET":(method==HTTP_POST)?"POST":"";
+  const char* meth = (method==HTTP_GET)?"GET":(method==HTTP_POST)?"POST":(method==HTTP_PUT)?"PUT":(method==HTTP_DELETE)?"DELETE":"";
   snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nHost: %s\r\n", meth, path, host); //Write request
   ret = send(buf);
   if(ret)
@@ -157,7 +173,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
 
   //Send default headers
   DBG("Sending headers");
-  if( (method == HTTP_POST) && (pDataOut != NULL) )
+  if( pDataOut != NULL )
   {
     if( pDataOut->getIsChunked() )
     {
@@ -186,8 +202,8 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
 
   size_t trfLen;
   
-  //Send data (if POST)
-  if( (method == HTTP_POST) && (pDataOut != NULL) )
+  //Send data (if available)
+  if( pDataOut != NULL )
   {
     DBG("Sending data");
     while(true)
@@ -258,9 +274,9 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
     PRTCL_ERR();
   }
 
-  if(m_httpResponseCode != 200)
+  if( (m_httpResponseCode < 200) || (m_httpResponseCode >= 300) )
   {
-    //Cannot match string, error
+    //Did not return a 2xx code; TODO fetch headers/(&data?) anyway and implement a mean of writing/reading headers 
     WARN("Response code %d", m_httpResponseCode);
     PRTCL_ERR();
   }
