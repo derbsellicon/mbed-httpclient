@@ -193,6 +193,24 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
       ret = send(buf);
       CHECK_CONN_ERR(ret);
     }
+    
+    //Send specific headers
+    while( pDataOut->getHeader(buf, sizeof(buf) - 3) ) //must have space left for CRLF + 0 terminating char
+    {
+      size_t headerlen = strlen(buf);
+      snprintf(buf + headerlen, sizeof(buf) - headerlen, "\r\n");
+      ret = send(buf);
+      CHECK_CONN_ERR(ret);
+    }
+  }
+  
+  //Send specific headers
+  while( pDataIn->getHeader(buf, sizeof(buf) - 3) )
+  {
+    size_t headerlen = strlen(buf);
+    snprintf(buf + headerlen, sizeof(buf) - headerlen, "\r\n");
+    ret = send(buf);
+    CHECK_CONN_ERR(ret);
   }
   
   //Close headers
@@ -247,27 +265,50 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
         break;
       }
     }
-
   }
   
   //Receive response
   DBG("Receiving response");
-  ret = recv(buf, CHUNK_SIZE - 1, CHUNK_SIZE - 1, &trfLen); //Read n bytes
+  ret = recv(buf, 1, CHUNK_SIZE - 1, &trfLen); //Read n bytes
   CHECK_CONN_ERR(ret);
 
   buf[trfLen] = '\0';
 
-  char* crlfPtr = strstr(buf, "\r\n");
+  //Make sure we got the first response line
+  char* crlfPtr = NULL;
+  while( true )
+  {
+    crlfPtr = strstr(buf, "\r\n");
   if(crlfPtr == NULL)
   {
+      if( trfLen < CHUNK_SIZE - 1 )
+      {
+        size_t newTrfLen;
+        ret = recv(buf + trfLen, 1, CHUNK_SIZE - trfLen - 1, &newTrfLen);
+        trfLen += newTrfLen;
+        buf[trfLen] = '\0';
+        DBG("Read %d chars; In buf: [%s]", newTrfLen, buf);
+        CHECK_CONN_ERR(ret);
+        continue;
+      }
+      else
+      {
     PRTCL_ERR();
+  }
+    }
+    break;
   }
 
   int crlfPos = crlfPtr - buf;
   buf[crlfPos] = '\0';
 
   //Parse HTTP response
-  if( sscanf(buf, "HTTP/%*d.%*d %d %*[^\r\n]", &m_httpResponseCode) != 1 )
+  //if( sscanf(buf, "HTTP/%*d.%*d %d %*[^\r\n]", &m_httpResponseCode) != 1 )
+  if(crlfPos > 13)
+  {
+    buf[13] = '\0';
+  }
+  if( sscanf(buf, "HTTP/%*d.%*d %d", &m_httpResponseCode) != 1 ) //Kludge for newlib nano
   {
     //Cannot match string, error
     ERR("Not a correct HTTP answer : %s\n", buf);
@@ -288,6 +329,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
 
   size_t recvContentLength = 0;
   bool recvChunked = false;
+  bool recvLengthUnknown = true;
   //Now get headers
   while( true )
   {
@@ -325,16 +367,41 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
     char key[32];
     char value[32];
 
-    key[31] = '\0';
-    value[31] = '\0';
+    //key[31] = '\0';
+    //value[31] = '\0';
 
-    int n = sscanf(buf, "%31[^:]: %31[^\r\n]", key, value);
+    memset(key, 0, 32);
+    memset(value, 0, 32);
+
+    //int n = sscanf(buf, "%31[^:]: %31[^\r\n]", key, value);
+    
+    int n = 0;
+    
+    char* keyEnd = strchr(buf, ':');
+    if(keyEnd != NULL)
+    {
+      *keyEnd = '\0';
+    
+      if(sscanf(buf, "%31c", key) == 1)
+      {
+        n++;
+        char* valueStart = keyEnd + 2;
+        if( (valueStart - buf) < crlfPos )
+        {
+          if(sscanf(valueStart, "%31c", value) == 1)
+          {
+            n++;
+          }
+        }
+      }
+    }
     if ( n == 2 )
     {
       DBG("Read header : %s: %s\n", key, value);
       if( !strcmp(key, "Content-Length") )
       {
         sscanf(value, "%d", &recvContentLength);
+        recvLengthUnknown = false;
         pDataIn->setDataLen(recvContentLength);
       }
       else if( !strcmp(key, "Transfer-Encoding") )
@@ -342,6 +409,7 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
         if( !strcmp(value, "Chunked") || !strcmp(value, "chunked") )
         {
           recvChunked = true;
+          recvLengthUnknown = false;
           pDataIn->setIsChunked(true);
         }
       }
@@ -426,28 +494,49 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
       readLen = recvContentLength;
     }
 
-    DBG("Retrieving %d bytes", readLen);
+    DBG("Retrieving %d bytes (%d bytes in buffer)", readLen, trfLen);
 
     do
     {
-      pDataIn->write(buf, MIN(trfLen, readLen));
-      if( trfLen > readLen )
+      if(recvLengthUnknown )
       {
-        memmove(buf, &buf[readLen], trfLen - readLen);
-        trfLen -= readLen;
-        readLen = 0;
+        readLen = trfLen;
+      }
+      pDataIn->write(buf, MIN(trfLen, readLen));
+      if(!recvLengthUnknown)
+      {
+        if( trfLen > readLen )
+        {
+          memmove(buf, &buf[readLen], trfLen - readLen);
+          trfLen -= readLen;
+          readLen = 0;
+        }
+        else
+        {
+          readLen -= trfLen;
+        }
       }
       else
       {
-        readLen -= trfLen;
+        trfLen = 0;
       }
 
-      if(readLen)
+      if(readLen || recvLengthUnknown)
       {
         ret = recv(buf, 1, CHUNK_SIZE - trfLen - 1, &trfLen);
+        if(recvLengthUnknown && (ret == HTTP_CLOSED))
+        {
+          //Write and exit
+          pDataIn->write(buf, trfLen);
+          break;
+        }
         CHECK_CONN_ERR(ret);
+        if(recvLengthUnknown && (trfLen == 0))
+        {
+          break;
+        }
       }
-    } while(readLen);
+    } while(readLen || recvLengthUnknown);
 
     if( recvChunked )
     {

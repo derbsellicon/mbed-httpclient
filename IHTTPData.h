@@ -24,8 +24,17 @@
 
 using std::size_t;
 
+class IHTTPData
+{
+  protected:
+  /** Get a specific header
+  *
+  */
+  virtual bool getHeader(char* header, size_t maxHeaderLen) { return false; }
+};
+
 ///This is a simple interface for HTTP data storage (impl examples are Key/Value Pairs, File, etc...)
-class IHTTPDataOut
+class IHTTPDataOut : public IHTTPData
 {
 protected:
   friend class HTTPClient;
@@ -60,7 +69,7 @@ protected:
 };
 
 ///This is a simple interface for HTTP data storage (impl examples are Key/Value Pairs, File, etc...)
-class IHTTPDataIn
+class IHTTPDataIn : public IHTTPData
 {
 protected:
   friend class HTTPClient;
