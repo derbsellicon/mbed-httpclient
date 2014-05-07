@@ -381,15 +381,16 @@ HTTPResult HTTPClient::connect(const char* url, HTTP_METH method, IHTTPDataOut* 
     if(keyEnd != NULL)
     {
       *keyEnd = '\0';
-    
-      if(sscanf(buf, "%31c", key) == 1)
+      if(strlen(buf) < 32)
       {
+        strcpy(key, buf);
         n++;
         char* valueStart = keyEnd + 2;
         if( (valueStart - buf) < crlfPos )
         {
-          if(sscanf(valueStart, "%31c", value) == 1)
-          {
+          if(strlen(valueStart) < 32)
+          { 
+            strcpy(value, valueStart);
             n++;
           }
         }
