@@ -1,0 +1,19 @@
+{
+  "name": "httpclient",
+  "version": "0.0.1",
+  "bin": "./source",
+  "private": true,
+  "description": "a http client for mbed, it is a fork of Donatien Garnier works https://developer.mbed.org/users/donatien/code/HTTPClient ",
+  "keywords": [
+    "httpclient",
+    "http",
+    "web",
+    "mbed"
+  ],
+  "author": "Zakaria ElQotbi",
+  "homepage": "https://github.com/derbsellicon/mbed-httpclient",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "mbed-drivers": "*"
+  }
+}
